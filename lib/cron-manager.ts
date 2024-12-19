@@ -65,17 +65,19 @@ class CronManager {
       const randomIndex = Math.floor(Math.random() * availablePersonas.length);
       const selectedPersona = availablePersonas[randomIndex];
 
-      // Update the settings to use the new selected persona
+      // Update the settings with new persona and lastRotation
+      const now = new Date();
       await prisma.settings.update({
         where: {
           id: "1"  // Default settings ID
         },
         data: {
-          selectedPersonaId: selectedPersona.id
+          selectedPersonaId: selectedPersona.id,
+          lastRotation: now
         }
       });
 
-      this.lastRotation = new Date();
+      this.lastRotation = now;
       console.log(`Persona rotated successfully to: ${selectedPersona.name} at ${this.lastRotation.toISOString()}`);
     } catch (error) {
       console.error('Error rotating persona:', error);
