@@ -16,7 +16,7 @@ import {
 export function LoginDialog() {
   const [password, setPassword] = useState("")
   const [isLoading, setIsLoading] = useState(false)
-  const [isAuthenticated, setIsAuthenticated] = useState(true) // Start with true to prevent flash
+  const [isOpen, setIsOpen] = useState(false)
   const router = useRouter()
   const { toast } = useToast()
 
@@ -25,13 +25,11 @@ export function LoginDialog() {
     const checkAuth = async () => {
       try {
         const response = await fetch("/api/admin/check-auth")
-        if (response.ok) {
-          setIsAuthenticated(true)
-        } else {
-          setIsAuthenticated(false)
+        if (!response.ok) {
+          setIsOpen(true)
         }
       } catch (error) {
-        setIsAuthenticated(false)
+        setIsOpen(true)
       }
     }
     checkAuth()
@@ -49,8 +47,19 @@ export function LoginDialog() {
       })
 
       if (response.ok) {
-        setIsAuthenticated(true)
-        router.refresh()
+        setIsOpen(false)
+        toast({
+          title: "Success",
+          description: "Logged in successfully. Loading dashboard...",
+        })
+        
+        // Set a flag in sessionStorage to indicate first load after login
+        sessionStorage.setItem('justLoggedIn', 'true')
+        
+        // Refresh the page after a short delay
+        setTimeout(() => {
+          window.location.reload()
+        }, 1000)
       } else {
         toast({
           title: "Error",
@@ -61,7 +70,7 @@ export function LoginDialog() {
     } catch (error) {
       toast({
         title: "Error",
-        description: "Something went wrong",
+        description: "Failed to log in",
         variant: "destructive",
       })
     } finally {
@@ -69,43 +78,27 @@ export function LoginDialog() {
     }
   }
 
-  if (isAuthenticated) {
-    return null
-  }
-
   return (
-    <div className="fixed inset-0 z-50">
-      <div className="fixed inset-0 bg-background/80 backdrop-blur-sm" />
-      <Dialog open={true} onOpenChange={() => {}}>
-        <DialogContent className="sm:max-w-md border-none">
-          <DialogHeader>
-            <DialogTitle>Admin Login</DialogTitle>
-            <DialogDescription>
-              Enter your password to access the admin panel
-            </DialogDescription>
-          </DialogHeader>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <Input
-                id="password"
-                type="password"
-                placeholder="Enter password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                autoFocus
-              />
-            </div>
-            <div className="flex justify-end">
-              <Button
-                type="submit"
-                disabled={isLoading}
-              >
-                {isLoading ? "Loading..." : "Login"}
-              </Button>
-            </div>
-          </form>
-        </DialogContent>
-      </Dialog>
-    </div>
+    <Dialog open={isOpen} onOpenChange={setIsOpen}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Admin Login</DialogTitle>
+          <DialogDescription>
+            Please enter your admin password to continue.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <Input
+            type="password"
+            placeholder="Password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+          <Button type="submit" className="w-full" disabled={isLoading}>
+            {isLoading ? "Logging in..." : "Login"}
+          </Button>
+        </form>
+      </DialogContent>
+    </Dialog>
   )
 }

@@ -1,8 +1,18 @@
 import { prisma } from "@/lib/prisma"
 import { NextResponse, NextRequest } from "next/server"
+import { cookies } from "next/headers"
 
 export async function GET(request: NextRequest) {
   try {
+    // Check authentication
+    const adminToken = cookies().get('admin_token')?.value
+    if (adminToken !== process.env.ADMIN_PASSWORD) {
+      return NextResponse.json(
+        { error: "Unauthorized access" },
+        { status: 401 }
+      )
+    }
+
     const { searchParams } = new URL(request.url)
     const timeRange = searchParams.get('timeRange') || '7days'
 

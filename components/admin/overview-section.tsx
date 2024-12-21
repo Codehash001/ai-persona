@@ -37,14 +37,33 @@ export function OverviewSection() {
   const [personasTimeRange, setPersonasTimeRange] = useState<TimeRange>("7days")
   const [expandedChart, setExpandedChart] = useState<"messages" | "personas" | null>(null)
 
-  const { data: stats, isLoading } = useQuery<StatsData>({
+  const { data: stats, isLoading, error, refetch } = useQuery<StatsData>({
     queryKey: ["adminStats", "30days"],
     queryFn: async () => {
-      const response = await fetch(`/api/admin/stats?timeRange=30days`)
-      if (!response.ok) throw new Error("Failed to fetch admin stats")
+      const response = await fetch(`/api/admin/stats?timeRange=30days`, {
+        credentials: 'include', 
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      })
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.error || "Failed to fetch admin stats")
+      }
+      
       return response.json()
-    }
+    },
+    retry: 1, 
+    retryDelay: 1000, 
   })
+
+  useEffect(() => {
+    if (sessionStorage.getItem('justLoggedIn')) {
+      sessionStorage.removeItem('justLoggedIn')
+      refetch()
+    }
+  }, [refetch])
 
   if (isLoading) {
     return (
@@ -79,6 +98,22 @@ export function OverviewSection() {
             </CardContent>
           </Card>
         </div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="rounded-lg border p-4 text-center">
+        <p className="text-red-500 mb-2">Error loading stats</p>
+        <p className="text-sm text-muted-foreground">{error.message}</p>
+        <Button 
+          variant="outline" 
+          className="mt-2"
+          onClick={() => window.location.reload()}
+        >
+          Retry
+        </Button>
       </div>
     )
   }
