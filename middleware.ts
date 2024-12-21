@@ -1,7 +1,13 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
+import { cronManager } from '@/lib/cron-manager'
 
 export async function middleware(request: NextRequest) {
+  // Check for persona rotation on chat API calls
+  if (request.nextUrl.pathname.startsWith('/api/chat')) {
+    await cronManager.checkAndRotatePersona()
+  }
+
   // Allow public API endpoints
   if (
     request.nextUrl.pathname.startsWith('/api/admin/login') ||
@@ -30,5 +36,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/admin/:path*', '/api/admin/:path*']
+  matcher: ['/admin/:path*', '/api/admin/:path*', '/api/chat/:path*']
 }

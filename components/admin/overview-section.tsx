@@ -38,15 +38,15 @@ export function OverviewSection() {
   const [expandedChart, setExpandedChart] = useState<"messages" | "personas" | null>(null)
 
   const { data: stats, isLoading } = useQuery<StatsData>({
-    queryKey: ["admin-stats", "30days"],
+    queryKey: ["adminStats", "30days"],
     queryFn: async () => {
-      const res = await fetch("/api/admin/stats?timeRange=30days")
-      if (!res.ok) throw new Error("Failed to fetch stats")
-      return res.json()
+      const response = await fetch(`/api/admin/stats?timeRange=30days`)
+      if (!response.ok) throw new Error("Failed to fetch admin stats")
+      return response.json()
     }
   })
 
-  if (!stats || isLoading) {
+  if (isLoading) {
     return (
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         {Array.from({ length: 4 }).map((_, index) => (
@@ -83,13 +83,10 @@ export function OverviewSection() {
     )
   }
 
+  if (!stats) return null;
+
   const formatDate = (dateStr: string) => {
     return format(new Date(dateStr), 'MMM d')
-  }
-
-  const getMaxValue = (data: number[]) => {
-    const max = Math.max(...data)
-    return Math.ceil(max / 10) * 10 // Round up to nearest 10
   }
 
   const chartConfig = {
@@ -106,14 +103,32 @@ export function OverviewSection() {
     },
   }
 
-  const formattedData = stats.messagesByDate.map(item => ({
-    date: format(new Date(item.date), 'MMM dd'),
-    messages: item.count
-  })).slice(messagesTimeRange === "7days" ? -7 : messagesTimeRange === "14days" ? -14 : -30)
+  const getTimeRangeData = (data: any[], range: TimeRange) => {
+    const ranges = {
+      "7days": 7,
+      "14days": 14,
+      "30days": 30
+    }
+    return data.slice(-ranges[range])
+  }
 
-  const formattedPersonaData = stats.personaUsage
-    .sort((a, b) => b.usage - a.usage)
-    .slice(0, personasTimeRange === "7days" ? 7 : personasTimeRange === "14days" ? 14 : 30)
+  const formattedData = getTimeRangeData(
+    stats.messagesByDate.map(item => ({
+      date: format(new Date(item.date), 'MMM dd'),
+      messages: item.count
+    })),
+    messagesTimeRange
+  )
+
+  const formattedPersonaData = getTimeRangeData(
+    stats.personaUsage
+      .sort((a, b) => b.usage - a.usage)
+      .map(item => ({
+        name: item.name,
+        usage: item.usage
+      })),
+    personasTimeRange
+  )
 
   const cards = [
     {
@@ -140,7 +155,7 @@ export function OverviewSection() {
 
   return (
     <>
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-6">
         {cards.map((card) => (
           <Card key={card.title}>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -154,144 +169,142 @@ export function OverviewSection() {
             </CardContent>
           </Card>
         ))}
+      </div>
 
-        <div className="col-span-4 grid gap-4 md:grid-cols-2">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
-              <CardTitle className="text-base font-normal">Messages Over Time</CardTitle>
-              <div className="flex items-center gap-2">
-                <Select
-                  value={messagesTimeRange}
-                  onValueChange={(value: TimeRange) => setMessagesTimeRange(value)}
+      <div className="col-span-4 grid gap-4 md:grid-cols-2">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle>Messages Over Time</CardTitle>
+            <div className="flex items-center gap-2">
+              <Select
+                value={messagesTimeRange}
+                onValueChange={(value: TimeRange) => setMessagesTimeRange(value)}
+              >
+                <SelectTrigger className="w-[140px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {timeRangeOptions.map(option => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setExpandedChart("messages")}
+              >
+                <Expand className="h-4 w-4" />
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="h-[320px] p-4">
+            <div className="w-full h-full">
+              <ChartContainer config={chartConfig}>
+                <LineChart
+                  data={formattedData}
+                  margin={{ top: 10, right: 10, bottom: 10, left: 10 }}
                 >
-                  <SelectTrigger className="h-8 w-[120px]">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {timeRangeOptions.map(option => (
-                      <SelectItem key={option.value} value={option.value}>
-                        {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8"
-                  onClick={() => setExpandedChart("messages")}
-                >
-                  <Expand className="h-4 w-4" />
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent className="h-[320px] p-4">
-              <div className="w-full h-full">
-                <ChartContainer config={chartConfig}>
-                  <LineChart
-                    data={formattedData}
-                    margin={{ top: 10, right: 10, bottom: 10, left: 10 }}
-                  >
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#eee" />
-                    <XAxis 
-                      dataKey="date" 
-                      hide
-                    />
-                    <YAxis 
-                      tickLine={false}
-                      axisLine={false}
-                      tickMargin={8}
-                      width={30}
-                      tick={{ fontSize: 13, fill: '#888' }}
-                      domain={[0, 'auto']}
-                    />
-                    <ChartTooltip
-                      cursor={false}
-                      content={<ChartTooltipContent />}
-                    />
-                    <Line
-                      type="monotone"
-                      dataKey="messages"
-                      stroke="var(--color-messages)"
-                      strokeWidth={2.5}
-                      dot={{ fill: "var(--color-messages)", r: 5, strokeWidth: 0 }}
-                      activeDot={{ r: 7, fill: "var(--color-messages)" }}
-                    />
-                  </LineChart>
-                </ChartContainer>
-              </div>
-            </CardContent>
-          </Card>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#eee" />
+                  <XAxis 
+                    dataKey="date" 
+                    hide
+                  />
+                  <YAxis 
+                    tickLine={false}
+                    axisLine={false}
+                    tickMargin={8}
+                    width={30}
+                    tick={{ fontSize: 13, fill: '#888' }}
+                    domain={[0, 'auto']}
+                  />
+                  <ChartTooltip
+                    cursor={false}
+                    content={<ChartTooltipContent />}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="messages"
+                    stroke="var(--color-messages)"
+                    strokeWidth={2.5}
+                    dot={{ fill: "var(--color-messages)", r: 5, strokeWidth: 0 }}
+                    activeDot={{ r: 7, fill: "var(--color-messages)" }}
+                  />
+                </LineChart>
+              </ChartContainer>
+            </div>
+          </CardContent>
+        </Card>
 
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
-              <CardTitle className="text-base font-normal">Persona Usage</CardTitle>
-              <div className="flex items-center gap-2">
-                <Select
-                  value={personasTimeRange}
-                  onValueChange={(value: TimeRange) => setPersonasTimeRange(value)}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle>Persona Usage</CardTitle>
+            <div className="flex items-center gap-2">
+              <Select
+                value={personasTimeRange}
+                onValueChange={(value: TimeRange) => setPersonasTimeRange(value)}
+              >
+                <SelectTrigger className="w-[140px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {timeRangeOptions.map(option => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setExpandedChart("personas")}
+              >
+                <Expand className="h-4 w-4" />
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="h-[320px] p-4">
+            <div className="w-full h-full">
+              <ChartContainer config={personaChartConfig}>
+                <BarChart
+                  data={formattedPersonaData}
+                  layout="vertical"
+                  margin={{ top: 10, right: 10, bottom: 10, left: 10 }}
+                  barSize={48}
+                  maxBarSize={500}
                 >
-                  <SelectTrigger className="h-8 w-[120px]">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {timeRangeOptions.map(option => (
-                      <SelectItem key={option.value} value={option.value}>
-                        {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8"
-                  onClick={() => setExpandedChart("personas")}
-                >
-                  <Expand className="h-4 w-4" />
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent className="h-[320px] p-4">
-              <div className="w-full h-full">
-                <ChartContainer config={personaChartConfig}>
-                  <BarChart
-                    data={formattedPersonaData}
-                    layout="vertical"
-                    margin={{ top: 10, right: 10, bottom: 10, left: 10 }}
-                    barSize={48}
-                    maxBarSize={500}
-                  >
-                    <XAxis 
-                      type="number" 
-                      hide
-                      domain={[0, 'dataMax + 10']}
-                    />
-                    <YAxis
-                      dataKey="name"
-                      type="category"
-                      tickLine={false}
-                      axisLine={false}
-                      tickMargin={12}
-                      width={110}
-                      tick={{ fontSize: 14, fill: '#888' }}
-                    />
-                    <ChartTooltip
-                      cursor={false}
-                      content={<ChartTooltipContent hideLabel />}
-                    />
-                    <Bar 
-                      dataKey="usage" 
-                      fill="var(--color-usage)" 
-                      radius={8}
-                      background={{ fill: "hsl(var(--muted))", radius: 8 }}
-                    />
-                  </BarChart>
-                </ChartContainer>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+                  <XAxis 
+                    type="number" 
+                    hide
+                    domain={[0, 'dataMax + 10']}
+                  />
+                  <YAxis
+                    dataKey="name"
+                    type="category"
+                    tickLine={false}
+                    axisLine={false}
+                    tickMargin={12}
+                    width={110}
+                    tick={{ fontSize: 14, fill: '#888' }}
+                  />
+                  <ChartTooltip
+                    cursor={false}
+                    content={<ChartTooltipContent hideLabel />}
+                  />
+                  <Bar 
+                    dataKey="usage" 
+                    fill="var(--color-usage)" 
+                    radius={8}
+                    background={{ fill: "hsl(var(--muted))", radius: 8 }}
+                  />
+                </BarChart>
+              </ChartContainer>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       {expandedChart === "messages" ? (

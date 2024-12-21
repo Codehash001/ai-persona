@@ -5,7 +5,6 @@ const prisma = new PrismaClient();
 class CronManager {
   private static instance: CronManager;
   private currentInterval: number = 360; // Default 6 hours in minutes
-  private lastRotation: Date | null = null;
 
   private constructor() {}
 
@@ -30,13 +29,12 @@ class CronManager {
   }
 
   private async shouldRotatePersona(): Promise<boolean> {
-    if (!this.lastRotation) return true;
-
     const settings = await prisma.settings.findFirst();
-    if (!settings) return false;
+    if (!settings?.lastRotation) return true;
 
     const now = new Date();
-    const timeSinceLastRotation = now.getTime() - this.lastRotation.getTime();
+    const lastRotation = new Date(settings.lastRotation);
+    const timeSinceLastRotation = now.getTime() - lastRotation.getTime();
     const randomChance = Math.random();
     
     // Calculate minutes since last rotation
@@ -66,10 +64,10 @@ class CronManager {
     return randomChance < 0.1;
   }
 
-  public async rotatePersona() {
+  public async checkAndRotatePersona() {
     try {
       if (!(await this.shouldRotatePersona())) {
-        return;
+        return false;
       }
 
       const personas = await prisma.persona.findMany({
@@ -80,7 +78,7 @@ class CronManager {
 
       if (personas.length === 0) {
         console.log('No active personas found for rotation');
-        return;
+        return false;
       }
 
       const settings = await prisma.settings.findFirst();
@@ -88,7 +86,7 @@ class CronManager {
       
       if (availablePersonas.length === 0) {
         console.log('No other personas available for rotation');
-        return;
+        return false;
       }
 
       const randomIndex = Math.floor(Math.random() * availablePersonas.length);
@@ -105,30 +103,56 @@ class CronManager {
         }
       });
 
-      this.lastRotation = now;
-      console.log(`Persona rotated successfully to: ${selectedPersona.name} at ${this.lastRotation.toISOString()}`);
+      console.log(`Persona rotated successfully to: ${selectedPersona.name} at ${now.toISOString()}`);
+      return true;
     } catch (error) {
       console.error('Error rotating persona:', error);
+      return false;
     }
   }
 
-  public getCurrentInterval(): number {
-    return this.currentInterval;
+  public async getCurrentInterval(): Promise<number> {
+    return this.getRotationInterval();
   }
 
-  public getLastRotation(): Date | null {
-    return this.lastRotation;
+  public async getLastRotation(): Promise<Date | null> {
+    const settings = await prisma.settings.findFirst();
+    return settings?.lastRotation || null;
   }
 
   public async updateRotationInterval(minutes: number) {
-    console.log(`Updating rotation interval to: ${minutes} minutes`);
+    await prisma.settings.update({
+      where: { id: "1" },
+      data: { 
+        rotationInterval: minutes,
+        lastRotation: new Date() // Reset last rotation when interval changes
+      }
+    });
     this.currentInterval = minutes;
-    this.lastRotation = new Date(); // Reset last rotation when interval changes
   }
 
   public async forceRotation() {
     console.log('Forcing immediate persona rotation');
-    await this.rotatePersona();
+    return this.checkAndRotatePersona();
+  }
+
+  public async startPersonaRotation() {
+    try {
+      const interval = await this.getRotationInterval();
+      this.currentInterval = interval;
+      
+      // Initial rotation
+      await this.checkAndRotatePersona();
+      
+      // Set up recurring rotation check
+      setInterval(async () => {
+        await this.checkAndRotatePersona();
+      }, 1000 * 60); // Check every minute
+      
+      console.log(`Started persona rotation with interval of ${interval} minutes`);
+    } catch (error) {
+      console.error('Error starting persona rotation:', error);
+    }
   }
 }
 
