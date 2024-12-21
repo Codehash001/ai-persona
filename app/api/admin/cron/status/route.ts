@@ -14,7 +14,7 @@ export async function GET() {
     }
 
     const now = new Date();
-    const lastRotation = cronManager.getLastRotation();
+    const lastRotation = await cronManager.getLastRotation();
     
     let nextRotationTime: string;
     if (lastRotation) {
@@ -32,12 +32,12 @@ export async function GET() {
       lastRotation: lastRotation?.toISOString() || "Never",
       nextRotationIn: nextRotationTime,
       currentTime: now.toISOString(),
-      message: "Cron job is running"
+      message: "Rotation system is active"
     });
   } catch (error) {
-    console.error("Error getting cron status:", error);
+    console.error("Error getting rotation status:", error);
     return NextResponse.json(
-      { error: "Failed to get cron status" },
+      { error: "Failed to get rotation status" },
       { status: 500 }
     );
   }
