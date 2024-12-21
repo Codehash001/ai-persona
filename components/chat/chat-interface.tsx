@@ -324,7 +324,7 @@ export function ChatInterface() {
                 )}
                 <div className="flex flex-col">
                   <div
-                    className={`px-4 py-2 rounded-2xl max-w-[280px] sm:max-w-[80%] break-words shadow-sm prose-sm
+                    className={`px-4 py-2 rounded-2xl max-w-full break-words shadow-sm prose-sm
                       ${message.role === 'user'
                         ? 'bg-black dark:bg-white text-white dark:text-black rounded-br-none border border-black/10 dark:border-white/10 prose-headings:text-white dark:prose-headings:text-black prose-p:text-white/90 dark:prose-p:text-black/90' 
                         : 'bg-transparent text-black dark:text-white rounded-bl-none border border-black/10 dark:border-white/10 prose-headings:text-black dark:prose-headings:text-white prose-p:text-black/90 dark:prose-p:text-white/90'
