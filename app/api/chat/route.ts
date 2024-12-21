@@ -41,7 +41,7 @@ export async function POST(req: Request) {
     }
 
     // Try to rotate persona before processing the message
-    await cronManager.rotatePersona();
+    await cronManager.checkAndRotatePersona();
 
     // Refresh settings in case persona was rotated or randomly selected
     const updatedSettings = await prisma.settings.findUnique({
