@@ -11,10 +11,8 @@ export function AdminDashboard() {
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
 
   return (
-    <div className="flex min-h-screen flex-col space-y-6">
-
-
-      <main className="container mx-auto">
+    <div className="flex flex-col">
+      <main className="container">
         <OverviewSection />
       </main>
 

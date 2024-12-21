@@ -4,11 +4,27 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { Send, User, PlusCircle } from "lucide-react"
+import { Send, User, PlusCircle, LogOut } from "lucide-react"
 import { useChat, Message } from 'ai/react'
 import { ThemeToggle } from "@/components/theme-toggle"
+import ReactMarkdown from 'react-markdown'
+import { z } from "zod"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
 
 type Role = 'system' | 'user' | 'assistant' | 'data'
+
+const usernameSchema = z
+  .string()
+  .min(3, "Username must be at least 3 characters")
+  .max(20, "Username must be at most 20 characters")
+  .regex(
+    /^[a-zA-Z0-9_-]+$/,
+    "Username can only contain letters, numbers, underscores (_) and hyphens (-)"
+  )
 
 interface AIResponse extends Message {
   conversationId?: string
@@ -16,6 +32,7 @@ interface AIResponse extends Message {
 
 export function ChatInterface() {
   const [username, setUsername] = useState<string>('')
+  const [usernameError, setUsernameError] = useState<string | null>(null)
   const [showUsernameModal, setShowUsernameModal] = useState(true)
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [avatarColor] = useState(() => {
@@ -108,9 +125,16 @@ export function ChatInterface() {
 
   const handleUsernameSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (username.trim()) {
+    
+    try {
+      usernameSchema.parse(username)
       localStorage.setItem('username', username.trim())
       setShowUsernameModal(false)
+      setUsernameError(null)
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        setUsernameError(error.errors[0].message)
+      }
     }
   }
 
@@ -189,12 +213,20 @@ export function ChatInterface() {
               <Input
                 id="username"
                 type="text"
-                placeholder="Your name..."
+                placeholder="username (letters, numbers, _ or -)"
                 value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                className="w-full h-12 bg-transparent border-black/10 dark:border-white/10 rounded-xl px-4 text-black dark:text-white placeholder:text-black/40 dark:placeholder:text-white/40 focus-visible:ring-0 focus-visible:ring-offset-0"
+                onChange={(e) => {
+                  setUsername(e.target.value)
+                  setUsernameError(null)
+                }}
+                className={`w-full h-12 bg-transparent border-black/10 dark:border-white/10 rounded-xl px-4 text-black dark:text-white placeholder:text-black/40 dark:placeholder:text-white/40 focus-visible:ring-0 focus-visible:ring-offset-0 ${
+                  usernameError ? 'border-red-500' : ''
+                }`}
                 autoFocus
               />
+              {usernameError && (
+                <p className="text-sm text-red-500 mt-1">{usernameError}</p>
+              )}
             </div>
             <Button 
               type="submit"
@@ -228,15 +260,35 @@ export function ChatInterface() {
           />
 
           <div className="flex items-center gap-3">
-            <div 
-              className="h-8 w-8 rounded-full flex items-center justify-center text-sm font-medium shadow-xlsm:shadow-sm"
-              style={{ 
-                backgroundColor: avatarColor,
-                color: 'black'
-              }}
-            >
-              {getInitials(username)}
-            </div>
+            <Popover>
+              <PopoverTrigger asChild>
+                <div 
+                  className="h-8 w-8 rounded-full flex items-center justify-center text-sm font-medium shadow-xlsm:shadow-sm cursor-pointer hover:opacity-80"
+                  style={{ 
+                    backgroundColor: avatarColor,
+                    color: 'black'
+                  }}
+                >
+                  {getInitials(username)}
+                </div>
+              </PopoverTrigger>
+              <PopoverContent className="w-40 p-2" align="end">
+                <div className="text-sm font-medium text-black dark:text-white mb-2 px-2">
+                  {username}
+                </div>
+                <Button 
+                  variant="ghost" 
+                  className="w-full justify-start text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950"
+                  onClick={() => {
+                    localStorage.removeItem('username');
+                    setShowUsernameModal(true);
+                  }}
+                >
+                  <LogOut className="h-4 w-4 mr-2" />
+                  Logout
+                </Button>
+              </PopoverContent>
+            </Popover>
             <span className="text-sm font-medium text-black dark:text-white hidden sm:flex">
               {username}
             </span>
@@ -272,14 +324,16 @@ export function ChatInterface() {
                 )}
                 <div className="flex flex-col">
                   <div
-                    className={`px-4 py-2 rounded-2xl max-w-[280px] sm:max-w-[400px] break-words shadow-sm
+                    className={`px-4 py-2 rounded-2xl max-w-[280px] sm:max-w-[80%] break-words shadow-sm prose-sm
                       ${message.role === 'user'
-                        ? 'bg-black dark:bg-white text-white dark:text-black rounded-br-none border border-black/10 dark:border-white/10' 
-                        : 'bg-transparent text-black dark:text-white rounded-bl-none border border-black/10 dark:border-white/10'
+                        ? 'bg-black dark:bg-white text-white dark:text-black rounded-br-none border border-black/10 dark:border-white/10 prose-headings:text-white dark:prose-headings:text-black prose-p:text-white/90 dark:prose-p:text-black/90' 
+                        : 'bg-transparent text-black dark:text-white rounded-bl-none border border-black/10 dark:border-white/10 prose-headings:text-black dark:prose-headings:text-white prose-p:text-black/90 dark:prose-p:text-white/90'
                       }
                     `}
                   >
-                    {message.content}
+                    <ReactMarkdown className="prose-sm dark:prose-invert max-w-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
+                      {message.content}
+                    </ReactMarkdown>
                   </div>
                   <span className={`text-xs text-black/60 dark:text-white/60 mt-1 ${
                     message.role === 'user' ? 'text-right mr-2' : 'ml-2'

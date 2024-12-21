@@ -11,13 +11,14 @@ datasource db {
 }
 
 model Conversation {
-  id        String    @id @default(cuid())
-  username  String
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  messages  Message[]
-  persona   Persona?  @relation(fields: [personaId], references: [id])
-  personaId String?
+  id            String         @id @default(cuid())
+  username      String
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  messages      Message[]
+  persona       Persona?      @relation(fields: [personaId], references: [id])
+  personaId     String?
+  personaChanges PersonaChange[]
 }
 
 model Message {
@@ -26,18 +27,23 @@ model Message {
   role           String       // 'user' or 'assistant'
   conversation   Conversation @relation(fields: [conversationId], references: [id])
   conversationId String
+  persona        Persona?     @relation(fields: [personaId], references: [id])
+  personaId      String?
   createdAt      DateTime     @default(now())
 }
 
 model Persona {
-  id            String         @id @default(cuid())
-  name          String        @unique
-  systemPrompt  String        @db.Text
-  isActive      Boolean       @default(true)
-  conversations Conversation[]
-  settings      Settings[]    @relation("PersonaToSettings")
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
+  id              String         @id @default(cuid())
+  name            String        @unique
+  systemPrompt    String        @db.Text
+  isActive        Boolean       @default(true)
+  conversations   Conversation[]
+  messages        Message[]
+  settings        Settings[]    @relation("PersonaToSettings")
+  fromChanges     PersonaChange[] @relation("FromPersona")
+  toChanges       PersonaChange[] @relation("ToPersona")
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
 }
 
 model Settings {
@@ -45,6 +51,7 @@ model Settings {
   temperature       Float    @default(0.7)
   maxTokens         Int      @default(1000)
   rotationInterval  Int      @default(360)  // Default to 360 minutes (6 hours)
+  modelName         String   @default("gpt-4-0125-preview")
   selectedPersonaId String?
   selectedPersona   Persona? @relation("PersonaToSettings", fields: [selectedPersonaId], references: [id])
   lastRotation      DateTime?
@@ -57,4 +64,15 @@ model AdminSettings {
   description String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+model PersonaChange {
+  id             String       @id @default(cuid())
+  conversation   Conversation @relation(fields: [conversationId], references: [id])
+  conversationId String
+  fromPersona    Persona?     @relation("FromPersona", fields: [fromPersonaId], references: [id])
+  fromPersonaId  String?
+  toPersona      Persona      @relation("ToPersona", fields: [toPersonaId], references: [id])
+  toPersonaId    String
+  timestamp      DateTime     @default(now())
 }

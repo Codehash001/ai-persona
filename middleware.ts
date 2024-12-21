@@ -1,16 +1,34 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
-import { initializeCronJobs } from './lib/init-cron'
- 
+
 export async function middleware(request: NextRequest) {
-    // Initialize cron jobs
-    await initializeCronJobs();
-    
-    // Continue with the request
+  // Allow public API endpoints
+  if (
+    request.nextUrl.pathname.startsWith('/api/admin/login') ||
+    request.nextUrl.pathname.startsWith('/api/admin/check-auth')
+  ) {
     return NextResponse.next()
+  }
+
+  // Protect all admin routes and admin API routes
+  if (
+    request.nextUrl.pathname.startsWith('/admin') ||
+    request.nextUrl.pathname.startsWith('/api/admin')
+  ) {
+    const isAuthenticated = request.cookies.get('admin_token')?.value === process.env.ADMIN_PASSWORD
+
+    if (!isAuthenticated) {
+      if (request.nextUrl.pathname.startsWith('/api/')) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      }
+      // For non-API routes, let the client-side handle the authentication
+      return NextResponse.next()
+    }
+  }
+
+  return NextResponse.next()
 }
- 
+
 export const config = {
-    // Only run the middleware for API routes
-    matcher: '/api/:path*',
+  matcher: ['/admin/:path*', '/api/admin/:path*']
 }

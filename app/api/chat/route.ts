@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { openai } from '@ai-sdk/openai';
 import { generateText} from 'ai';
 import { prisma } from "@/lib/prisma"
+import { cronManager } from "@/lib/cron-manager"
 
 // Allow streaming responses up to 30 seconds
 export const maxDuration = 30;
@@ -19,22 +20,55 @@ export async function POST(req: Request) {
       }
     });
 
-    console.log("Settings:", settings)
+    // If no persona is selected, get a random active persona
+    if (!settings?.selectedPersonaId) {
+      const activePersonas = await prisma.persona.findMany({
+        where: {
+          isActive: true
+        }
+      });
+
+      if (activePersonas.length > 0) {
+        const randomPersona = activePersonas[Math.floor(Math.random() * activePersonas.length)];
+        await prisma.settings.update({
+          where: { id: "1" },
+          data: {
+            selectedPersonaId: randomPersona.id
+          }
+        });
+        console.log('Selected random persona:', randomPersona.name);
+      }
+    }
+
+    // Try to rotate persona before processing the message
+    await cronManager.rotatePersona();
+
+    // Refresh settings in case persona was rotated or randomly selected
+    const updatedSettings = await prisma.settings.findUnique({
+      where: { id: "1" },
+      include: {
+        selectedPersona: true
+      }
+    });
+
+    console.log("Settings:", updatedSettings)
 
     // Default settings if none exist
     let temperature = 0.7
     let maxTokens = 1000
     let systemPrompt = "You are a helpful assistant."
+    let modelName = "gpt-4-0125-preview" // Default model
 
     // Use settings from database if they exist
-    if (settings) {
-      temperature = settings.temperature
-      maxTokens = settings.maxTokens
+    if (updatedSettings) {
+      temperature = updatedSettings.temperature
+      maxTokens = updatedSettings.maxTokens
+      modelName = updatedSettings.modelName
       
       // Use the selected persona's system prompt if available
-      if (settings.selectedPersona) {
-        systemPrompt = settings.selectedPersona.systemPrompt
-        console.log('Using persona:', settings.selectedPersona.name)
+      if (updatedSettings.selectedPersona) {
+        systemPrompt = updatedSettings.selectedPersona.systemPrompt
+        console.log('Using persona:', updatedSettings.selectedPersona.name)
       }
     }
 
@@ -44,46 +78,191 @@ export async function POST(req: Request) {
       conversation = await prisma.conversation.create({
         data: {
           username: username || "Anonymous",
-          personaId: settings?.selectedPersonaId || null
+          personaId: updatedSettings?.selectedPersonaId || null
         },
         include: {
-          messages: true,
-          persona: true
+          messages: {
+            include: {
+              persona: true
+            }
+          },
+          persona: true,
+          personaChanges: {
+            include: {
+              fromPersona: true,
+              toPersona: true
+            },
+            orderBy: {
+              timestamp: 'desc'
+            }
+          }
         }
       })
+
+      // Use the conversation's persona's system prompt
+      if (conversation.persona) {
+        systemPrompt = conversation.persona.systemPrompt;
+        console.log('Using conversation persona:', conversation.persona.name);
+      } else {
+        // Fallback to default system prompt
+        systemPrompt = "You are a helpful assistant.";
+        console.log('Using default system prompt (no persona)');
+      }
     } else {
       // Get existing conversation
       conversation = await prisma.conversation.findUnique({
         where: { id: conversationId },
         include: {
-          messages: true,
-          persona: true
+          messages: {
+            include: {
+              persona: true
+            }
+          },
+          persona: true,
+          personaChanges: {
+            include: {
+              fromPersona: true,
+              toPersona: true
+            },
+            orderBy: {
+              timestamp: 'desc'
+            }
+          }
         }
       })
       
       if (!conversation) {
         throw new Error("Conversation not found")
       }
-    }
 
-    // Save user message
-    await prisma.message.create({
-      data: {
-        conversationId: conversation.id,
-        content: userMessage,
-        role: "user"
+      // Use the conversation's persona's system prompt
+      if (conversation.persona) {
+        systemPrompt = conversation.persona.systemPrompt;
+        console.log('Using conversation persona:', conversation.persona.name);
+      } else {
+        // Fallback to default system prompt
+        systemPrompt = "You are a helpful assistant.";
+        console.log('Using default system prompt (no persona)');
       }
-    })
 
-    // Update system prompt if conversation has a specific persona
-    if (conversation.persona?.systemPrompt) {
-      systemPrompt = conversation.persona.systemPrompt
+      // Update conversation's persona if it changed due to rotation
+      if (updatedSettings?.selectedPersonaId !== conversation.personaId) {
+        // Record the persona change
+        if (updatedSettings?.selectedPersonaId) {
+          await prisma.personaChange.create({
+            data: {
+              conversation: {
+                connect: {
+                  id: conversation.id
+                }
+              },
+              fromPersona: conversation.personaId ? {
+                connect: {
+                  id: conversation.personaId
+                }
+              } : undefined,
+              toPersona: {
+                connect: {
+                  id: updatedSettings.selectedPersonaId
+                }
+              }
+            }
+          });
+        }
+
+        // Update the conversation with new persona
+        conversation = await prisma.conversation.update({
+          where: { id: conversationId },
+          data: { 
+            personaId: updatedSettings?.selectedPersonaId || null,
+          },
+          include: {
+            messages: {
+              include: {
+                persona: true
+              }
+            },
+            persona: true,
+            personaChanges: {
+              include: {
+                fromPersona: true,
+                toPersona: true
+              },
+              orderBy: {
+                timestamp: 'desc'
+              }
+            }
+          }
+        });
+
+        // Use the conversation's current persona's system prompt
+        if (conversation.persona) {
+          systemPrompt = conversation.persona.systemPrompt;
+          console.log('Using conversation persona:', conversation.persona.name);
+        } else {
+          // Fallback to default system prompt
+          systemPrompt = "You are a helpful assistant.";
+          console.log('Using default system prompt (no persona)');
+        }
+        console.log('Updated conversation persona:', updatedSettings?.selectedPersona ? `to ${updatedSettings.selectedPersona.name}` : 'removed persona');
+      }
     }
+
+    // Get all persona changes for this conversation
+    const personaChanges = await prisma.personaChange.findMany({
+      where: {
+        conversationId: conversation.id
+      },
+      include: {
+        fromPersona: true,
+        toPersona: true
+      },
+      orderBy: {
+        timestamp: 'asc'
+      }
+    });
+
+    // Save user message with current persona
+    const newUserMessage = await prisma.message.create({
+      data: {
+        content: userMessage,
+        role: "user",
+        conversation: {
+          connect: {
+            id: conversation.id
+          }
+        },
+        ...(updatedSettings?.selectedPersonaId && {
+          persona: {
+            connect: {
+              id: updatedSettings.selectedPersonaId
+            }
+          }
+        })
+      },
+      include: {
+        persona: true
+      }
+    });
+
+    // Construct messages array with persona-specific system prompts
+    const conversationMessages = conversation.messages.map(msg => ({
+      role: msg.role as "user" | "assistant" | "system",
+      content: msg.content
+    }));
+
+    // Add the new user message
+    conversationMessages.push({
+      role: newUserMessage.role as "user" | "assistant" | "system",
+      content: newUserMessage.content
+    });
+
+    console.log('Using model:', modelName); // Log the model being used
 
     const result = await generateText({
-      model: openai('gpt-4o-mini'),
+      model: openai(modelName), // Use the model from settings
       system: systemPrompt,
-      messages,
+      messages: conversationMessages,
       temperature,
       maxTokens
     });
@@ -91,19 +270,39 @@ export async function POST(req: Request) {
     // Extract the text content from the result
     const responseText = typeof result === 'string' ? result : result.text || '';
 
-    // Save assistant message
-    await prisma.message.create({
+    // Save assistant message with current persona
+    const assistantMessage = await prisma.message.create({
       data: {
-        conversationId: conversation.id,
         content: responseText,
-        role: "assistant"
+        role: "assistant",
+        conversation: {
+          connect: {
+            id: conversation.id
+          }
+        },
+        ...(updatedSettings?.selectedPersonaId && {
+          persona: {
+            connect: {
+              id: updatedSettings.selectedPersonaId
+            }
+          }
+        })
+      },
+      include: {
+        persona: true
       }
-    })
+    });
 
     return NextResponse.json({
       role: "assistant",
       content: responseText,
-      conversationId: conversation.id
+      conversationId: conversation.id,
+      persona: assistantMessage.persona,
+      personaChanges: personaChanges.map(change => ({
+        timestamp: change.timestamp,
+        from: change.fromPersona?.name || 'none',
+        to: change.toPersona.name
+      }))
     })
 
   } catch (error) {

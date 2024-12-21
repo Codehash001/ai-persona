@@ -1,18 +1,48 @@
 "use client"
 
 import Link from "next/link"
-import { usePathname } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
 import { cn } from "@/lib/utils"
 import { 
   LayoutDashboard, 
   Settings, 
   Users,
-  MessageSquare 
+  MessageCircleCode,
+  LogOut 
 } from "lucide-react"
 import { ThemeToggle } from "@/components/theme-toggle"
+import { Button } from "@/components/ui/button"
+import { useToast } from "@/hooks/use-toast"
 
 export function DashboardShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
+  const router = useRouter()
+  const { toast } = useToast()
+
+  const handleSignOut = async () => {
+    try {
+      const response = await fetch("/api/admin/logout", {
+        method: "POST",
+      })
+
+      if (response.ok) {
+        // Force reload to clear any cached state
+        window.location.href = "/admin"
+      } else {
+        toast({
+          title: "Error",
+          description: "Failed to sign out",
+          variant: "destructive",
+        })
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Something went wrong",
+        variant: "destructive",
+      })
+    }
+  }
 
   const routes = [
     {
@@ -30,7 +60,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
     {
       href: "/admin/conversations",
       label: "Conversations",
-      icon: MessageSquare,
+      icon: MessageCircleCode,
       active: pathname === "/admin/conversations"
     },
     {
@@ -66,6 +96,16 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
               </Link>
             ))}
           </nav>
+          <div className="border-t p-4">
+            <Button
+              onClick={handleSignOut}
+              variant="ghost"
+              className="w-full justify-start text-red-500 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950"
+            >
+              <LogOut className="mr-2 h-4 w-4" />
+              Sign Out
+            </Button>
+          </div>
         </div>
       </aside>
 

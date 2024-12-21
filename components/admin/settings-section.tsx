@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useQuery } from "@tanstack/react-query"
 import {
   Card,
   CardContent,
@@ -21,7 +22,8 @@ import { Button } from "@/components/ui/button"
 import { Slider } from "@/components/ui/slider"
 import { useToast } from "@/hooks/use-toast"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Bot, Settings2, Zap } from "lucide-react"
+import { Bot, Zap } from "lucide-react"
+import { Skeleton } from "@/components/ui/skeleton"
 
 interface Persona {
   id: string
@@ -36,6 +38,7 @@ interface Settings {
   maxTokens: number
   rotationInterval: number
   selectedPersonaId: string | null
+  modelName: string
 }
 
 const defaultSettings: Settings = {
@@ -44,56 +47,115 @@ const defaultSettings: Settings = {
   maxTokens: 1000,
   rotationInterval: 360,
   selectedPersonaId: null,
+  modelName: "gpt-4-0125-preview"
 }
+
+const availableModels = [
+  { id: "gpt-4-0125-preview", name: "GPT-4 Turbo" },
+  { id: "gpt-4", name: "GPT-4" },
+  { id: "gpt-3.5-turbo", name: "GPT-3.5 Turbo" },
+  { id: "gpt-4o", name: "GPT-4o" },
+  { id: "gpt-4o-mini", name: "GPT-4o Mini" },
+]
 
 export function SettingsSection() {
   const [settings, setSettings] = useState<Settings>(defaultSettings)
-  const [personas, setPersonas] = useState<Persona[]>([])
-  const [isLoading, setIsLoading] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
   const { toast } = useToast()
 
-  useEffect(() => {
-    fetchPersonas()
-    loadSettings()
-  }, [])
-
-  const fetchPersonas = async () => {
-    try {
+  const { data: personas = [], isLoading: personasLoading } = useQuery({
+    queryKey: ["personas"],
+    queryFn: async () => {
       const response = await fetch("/api/personas")
-      const data = await response.json()
-      const activePersonas = data.filter((p: Persona) => p.isActive)
-      setPersonas(activePersonas)
-    } catch (error) {
-      console.error("Failed to fetch personas:", error)
-      toast({
-        variant: "destructive",
-        title: "Error loading personas",
-        description: "Could not load active personas. Please try again."
-      })
+      if (!response.ok) throw new Error("Failed to fetch personas")
+      return response.json()
     }
-  }
+  })
 
-  const loadSettings = async () => {
-    try {
+  const { data: currentSettings, isLoading: settingsLoading } = useQuery({
+    queryKey: ["settings"],
+    queryFn: async () => {
       const response = await fetch("/api/settings")
-      if (response.ok) {
-        const data = await response.json()
-        setSettings({
-          id: data.id,
-          temperature: data.temperature,
-          maxTokens: data.maxTokens,
-          rotationInterval: data.rotationInterval ?? 360,
-          selectedPersonaId: data.selectedPersonaId
-        })
-      }
-    } catch (error) {
-      console.error("Failed to load settings:", error)
-      setSettings(defaultSettings)
+      if (!response.ok) throw new Error("Failed to fetch settings")
+      const data = await response.json()
+      setSettings(data) // Update local state with fetched settings
+      return data
     }
+  })
+
+  const isLoading = personasLoading || settingsLoading
+
+  if (isLoading) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <Skeleton className="h-5 w-[250px] mb-2" />
+            <Skeleton className="h-4 w-[300px]" />
+          </div>
+          <Skeleton className="h-10 w-[120px]" />
+        </div>
+
+        <Tabs defaultValue="persona" className="space-y-6">
+          <TabsList>
+            <TabsTrigger value="persona" className="space-x-2" disabled>
+              <Bot className="h-4 w-4" />
+              <span>Persona</span>
+            </TabsTrigger>
+            <TabsTrigger value="model" className="space-x-2" disabled>
+              <Zap className="h-4 w-4" />
+              <span>Model</span>
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="persona" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle><Skeleton className="h-6 w-[150px]" /></CardTitle>
+                <CardDescription>
+                  <Skeleton className="h-4 w-[200px]" />
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="space-y-2">
+                  <Label>Active Persona</Label>
+                  <Skeleton className="h-10 w-full" />
+                </div>
+                <div className="space-y-2">
+                  <Label>Rotation Interval (minutes)</Label>
+                  <Skeleton className="h-10 w-full" />
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="model" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle><Skeleton className="h-6 w-[150px]" /></CardTitle>
+                <CardDescription>
+                  <Skeleton className="h-4 w-[200px]" />
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="space-y-2">
+                  <Label>Model</Label>
+                  <Skeleton className="h-10 w-full" />
+                </div>
+                <div className="space-y-2">
+                  <Label>Temperature</Label>
+                  <Skeleton className="h-10 w-full" />
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
+      </div>
+    )
   }
 
   const saveSettings = async () => {
-    setIsLoading(true)
+    setIsSaving(true)
     try {
       const response = await fetch("/api/settings", {
         method: "POST",
@@ -120,7 +182,7 @@ export function SettingsSection() {
         description: "There was a problem saving your settings. Please try again."
       })
     } finally {
-      setIsLoading(false)
+      setIsSaving(false)
     }
   }
 
@@ -134,12 +196,11 @@ export function SettingsSection() {
         </div>
         <Button
           onClick={saveSettings}
-          disabled={isLoading}
+          disabled={isLoading || isSaving}
         >
-          {isLoading ? "Saving..." : "Save Changes"}
+          {isSaving ? "Saving..." : "Save Changes"}
         </Button>
       </div>
-
       <Tabs defaultValue="persona" className="space-y-6">
         <TabsList>
           <TabsTrigger value="persona" className="space-x-2">
@@ -149,10 +210,6 @@ export function SettingsSection() {
           <TabsTrigger value="model" className="space-x-2">
             <Zap className="h-4 w-4" />
             <span>Model</span>
-          </TabsTrigger>
-          <TabsTrigger value="advanced" className="space-x-2">
-            <Settings2 className="h-4 w-4" />
-            <span>Advanced</span>
           </TabsTrigger>
         </TabsList>
 
@@ -177,7 +234,7 @@ export function SettingsSection() {
                     <SelectValue placeholder="Select a persona" />
                   </SelectTrigger>
                   <SelectContent>
-                    {personas.map((persona) => (
+                    {personas.map((persona: Persona) => (
                       <SelectItem key={persona.id} value={persona.id}>
                         {persona.name}
                       </SelectItem>
@@ -210,12 +267,36 @@ export function SettingsSection() {
         <TabsContent value="model" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle>Model Behavior</CardTitle>
+              <CardTitle>Model Settings</CardTitle>
               <CardDescription>
-                Configure how the language model generates responses
+                Configure AI model and its behavior
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
+              <div className="space-y-2">
+                <Label>Model</Label>
+                <Select
+                  value={settings.modelName}
+                  onValueChange={(value) =>
+                    setSettings({ ...settings, modelName: value })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a model" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableModels.map((model) => (
+                      <SelectItem key={model.id} value={model.id}>
+                        {model.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-sm text-muted-foreground">
+                  Select the AI model to use for generating responses
+                </p>
+              </div>
+
               <div className="space-y-2">
                 <Label>Temperature ({settings.temperature})</Label>
                 <Slider
@@ -231,19 +312,7 @@ export function SettingsSection() {
                   Controls randomness: Lower values make the output more focused and deterministic
                 </p>
               </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
 
-        <TabsContent value="advanced" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Advanced Settings</CardTitle>
-              <CardDescription>
-                Fine-tune advanced model parameters
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
               <div className="space-y-2">
                 <Label>Max Tokens</Label>
                 <Input

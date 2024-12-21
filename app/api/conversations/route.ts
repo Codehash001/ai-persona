@@ -1,24 +1,104 @@
-import { NextResponse } from "next/server"
+import { NextResponse, NextRequest } from "next/server"
 import { prisma } from "@/lib/prisma"
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
+    const url = new URL(req.url)
+    const startDate = url.searchParams.get('startDate')
+    const endDate = url.searchParams.get('endDate')
+    const search = url.searchParams.get('search')
+    const page = parseInt(url.searchParams.get('page') || '1')
+    const pageSize = parseInt(url.searchParams.get('pageSize') || '10')
+
+    let whereClause: any = {}
+
+    // Add date filters
+    if (startDate || endDate) {
+      whereClause.createdAt = {
+        ...(startDate && { gte: new Date(startDate) }),
+        ...(endDate && { lte: new Date(endDate) })
+      }
+    }
+
+    // Add search filter
+    if (search) {
+      whereClause.username = {
+        contains: search,
+        mode: 'insensitive'
+      }
+    }
+
+    // Get total count for pagination
+    const totalCount = await prisma.conversation.count({
+      where: whereClause,
+    })
+
     const conversations = await prisma.conversation.findMany({
+      where: whereClause,
+      orderBy: {
+        createdAt: 'desc',
+      },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
       include: {
-        messages: true,
-        persona: {
-          select: {
-            id: true,
-            name: true,
+        messages: {
+          orderBy: {
+            createdAt: 'asc',
+          },
+          include: {
+            persona: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+          },
+        },
+        personaChanges: {
+          orderBy: {
+            timestamp: 'asc',
+          },
+          include: {
+            fromPersona: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+            toPersona: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
           },
         },
       },
-      orderBy: {
-        createdAt: "desc",
-      },
     })
 
-    return NextResponse.json(conversations)
+    // Transform the data to include persona info and persona changes
+    const transformedConversations = conversations.map(conversation => ({
+      ...conversation,
+      messages: conversation.messages.map(message => ({
+        ...message,
+        conversation: undefined // Remove nested conversation data
+      })),
+      personaChanges: conversation.personaChanges.map(change => ({
+        timestamp: change.timestamp,
+        from: change.fromPersona?.name || 'none',
+        to: change.toPersona.name
+      }))
+    }));
+
+    return NextResponse.json({
+      conversations: transformedConversations,
+      pagination: {
+        total: totalCount,
+        pageCount: Math.ceil(totalCount / pageSize),
+        page,
+        pageSize,
+      }
+    })
   } catch (error) {
     console.error("Failed to fetch conversations:", error)
     return NextResponse.json(
@@ -29,26 +109,42 @@ export async function GET() {
 }
 
 // Export conversation as JSON or CSV
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
-    const { conversationId, format } = await req.json()
+    const { conversationId, format, startDate, endDate } = await req.json()
+
+    let dateFilter = {};
+    if (startDate || endDate) {
+      dateFilter = {
+        createdAt: {
+          ...(startDate && { gte: new Date(startDate) }),
+          ...(endDate && { lte: new Date(endDate) })
+        }
+      };
+    }
 
     const conversation = await prisma.conversation.findUnique({
-      where: { id: conversationId },
+      where: {
+        id: conversationId,
+        ...dateFilter
+      },
       include: {
         messages: {
           orderBy: {
-            createdAt: 'asc'
-          }
+            createdAt: "asc",
+          },
+          include: {
+            persona: true,
+          },
+          where: dateFilter
         },
-        persona: {
-          select: {
-            id: true,
-            name: true,
-            systemPrompt: true
-          }
-        }
-      }
+        personaChanges: {
+          orderBy: {
+            timestamp: "asc",
+          },
+          where: dateFilter
+        },
+      },
     })
 
     if (!conversation) {
@@ -58,64 +154,38 @@ export async function POST(req: Request) {
       )
     }
 
-    if (format === 'csv') {
-      // Convert to CSV format
-      const csvRows = [
-        // Add metadata at the top
-        ['Conversation Metadata:', ''],
-        ['Username:', conversation.username || 'Anonymous'],
-        ['Persona Name:', conversation.persona?.name || 'Default'],
-        ['Persona ID:', conversation.persona?.id || 'N/A'],
-        ['System Prompt:', conversation.persona?.systemPrompt || 'Default Assistant'],
-        ['Created At:', conversation.createdAt.toISOString()],
-        ['', ''], // Empty row for separation
-        ['Messages:', ''],
-        ['Timestamp', 'Role', 'Content'],
-        ...conversation.messages.map(msg => 
-          [
-            msg.createdAt.toISOString(),
-            msg.role,
-            `"${msg.content.replace(/"/g, '""')}"` // Escape quotes for CSV
-          ].join(',')
-        )
-      ]
-      
-      return new NextResponse(csvRows.join('\n'), {
-        headers: {
-          'Content-Type': 'text/csv',
-          'Content-Disposition': `attachment; filename="conversation-${conversation.persona?.name || 'default'}-${conversationId}.csv"`
-        }
-      })
+    let data
+    let contentType
+    let filename
+
+    if (format === "json") {
+      data = JSON.stringify(conversation, null, 2)
+      contentType = "application/json"
+      filename = `conversation-${conversationId}.json`
+    } else {
+      // CSV format
+      const headers = ["timestamp", "role", "content", "persona"]
+      const rows = conversation.messages.map((msg) => [
+        new Date(msg.createdAt).toLocaleString(), 
+        msg.role,
+        msg.content.replace(/"/g, '""').replace(/\n/g, ' '),
+        msg.persona?.name || "",
+      ])
+      data = [headers, ...rows].map(row => row.map(field => `"${field}"`).join(",")).join("\n")
+      contentType = "text/csv"
+      filename = `conversation-${conversationId}.csv`
     }
 
-    // Default to JSON format
-    const exportData = {
-      metadata: {
-        username: conversation.username || 'Anonymous',
-        createdAt: conversation.createdAt,
-        persona: conversation.persona ? {
-          id: conversation.persona.id,
-          name: conversation.persona.name,
-          systemPrompt: conversation.persona.systemPrompt
-        } : {
-          id: null,
-          name: 'Default',
-          systemPrompt: 'Default Assistant'
-        }
-      },
-      messages: conversation.messages
-    }
-
-    return new NextResponse(JSON.stringify(exportData, null, 2), {
+    return new NextResponse(data, {
       headers: {
-        'Content-Type': 'application/json',
-        'Content-Disposition': `attachment; filename="conversation-${conversation.persona?.name || 'default'}-${conversationId}.json"`
-      }
+        "Content-Type": contentType,
+        "Content-Disposition": `attachment; filename="${filename}"`,
+      },
     })
   } catch (error) {
-    console.error("Failed to export conversation:", error)
+    console.error("Export failed:", error)
     return NextResponse.json(
-      { error: "Failed to export conversation" },
+      { error: "Export failed" },
       { status: 500 }
     )
   }

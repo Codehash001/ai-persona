@@ -4,7 +4,6 @@ const prisma = new PrismaClient();
 
 class CronManager {
   private static instance: CronManager;
-  private intervalId: NodeJS.Timeout | null = null;
   private currentInterval: number = 360; // Default 6 hours in minutes
   private lastRotation: Date | null = null;
 
@@ -19,29 +18,63 @@ class CronManager {
 
   private async getRotationInterval(): Promise<number> {
     try {
-      // Always fetch the latest settings
       const settings = await prisma.settings.findFirst();
-      
       if (!settings) {
-        console.log('No settings found, using default interval of 360 minutes');
         return 360;
       }
-
-      // Log the found interval
-      console.log(`Found rotation interval in database: ${settings.rotationInterval} minutes`);
       return settings.rotationInterval;
     } catch (error) {
       console.error('Error fetching rotation interval:', error);
-      return 360; // Default to 360 minutes on error
+      return 360;
     }
   }
 
-  private async rotatePersona() {
+  private async shouldRotatePersona(): Promise<boolean> {
+    if (!this.lastRotation) return true;
+
+    const settings = await prisma.settings.findFirst();
+    if (!settings) return false;
+
+    const now = new Date();
+    const timeSinceLastRotation = now.getTime() - this.lastRotation.getTime();
+    const randomChance = Math.random();
+    
+    // Calculate minutes since last rotation
+    const minutesSinceLastRotation = timeSinceLastRotation / (1000 * 60);
+    const rotationInterval = settings.rotationInterval;
+    
+    // Calculate thresholds based on rotation interval
+    const threshold1 = rotationInterval * 0.33; // 33% of interval
+    const threshold2 = rotationInterval * 0.66; // 66% of interval
+    const threshold3 = rotationInterval; // 100% of interval
+    
+    // Guaranteed rotation after full interval
+    if (minutesSinceLastRotation >= threshold3) return true;
+    
+    // Probability increases in three stages
+    if (minutesSinceLastRotation >= threshold2) {
+      // Between 66% and 100% of interval: 70% chance
+      return randomChance < 0.7;
+    }
+    
+    if (minutesSinceLastRotation >= threshold1) {
+      // Between 33% and 66% of interval: 40% chance
+      return randomChance < 0.4;
+    }
+    
+    // Before 33% of interval: 10% base chance
+    return randomChance < 0.1;
+  }
+
+  public async rotatePersona() {
     try {
-      // Get all available personas
+      if (!(await this.shouldRotatePersona())) {
+        return;
+      }
+
       const personas = await prisma.persona.findMany({
         where: {
-          isActive: true // Only consider active personas
+          isActive: true
         }
       });
 
@@ -50,10 +83,7 @@ class CronManager {
         return;
       }
 
-      // Get current selected persona
       const settings = await prisma.settings.findFirst();
-
-      // Filter out currently selected persona to ensure we rotate to a different one
       const availablePersonas = personas.filter(p => p.id !== settings?.selectedPersonaId);
       
       if (availablePersonas.length === 0) {
@@ -61,15 +91,13 @@ class CronManager {
         return;
       }
 
-      // Randomly select a persona from available ones
       const randomIndex = Math.floor(Math.random() * availablePersonas.length);
       const selectedPersona = availablePersonas[randomIndex];
 
-      // Update the settings with new persona and lastRotation
       const now = new Date();
       await prisma.settings.update({
         where: {
-          id: "1"  // Default settings ID
+          id: "1"
         },
         data: {
           selectedPersonaId: selectedPersona.id,
@@ -84,50 +112,6 @@ class CronManager {
     }
   }
 
-  public async startPersonaRotation() {
-    // Get initial interval
-    const minutes = await this.getRotationInterval();
-    this.currentInterval = minutes;
-
-    console.log(`Starting persona rotation with interval: ${minutes} minutes`);
-
-    // Stop any existing interval
-    this.stopPersonaRotation();
-
-    // Immediately perform first rotation
-    await this.rotatePersona();
-
-    // Convert minutes to milliseconds for setInterval
-    const intervalMs = minutes * 60 * 1000;
-
-    // Start new interval
-    this.intervalId = setInterval(async () => {
-      // Get the latest interval before each rotation
-      const currentMinutes = await this.getRotationInterval();
-      console.log(`Current rotation interval: ${currentMinutes} minutes`);
-      
-      if (currentMinutes !== this.currentInterval) {
-        // If interval changed, restart with new interval
-        console.log(`Interval changed from ${this.currentInterval} to ${currentMinutes} minutes, restarting rotation`);
-        await this.updateRotationInterval(currentMinutes);
-        return;
-      }
-
-      console.log('Rotation interval triggered at:', new Date().toISOString());
-      await this.rotatePersona();
-    }, intervalMs);
-
-    console.log('Persona rotation scheduled successfully');
-  }
-
-  public stopPersonaRotation() {
-    if (this.intervalId) {
-      clearInterval(this.intervalId);
-      this.intervalId = null;
-      console.log('Persona rotation stopped');
-    }
-  }
-
   public getCurrentInterval(): number {
     return this.currentInterval;
   }
@@ -139,7 +123,7 @@ class CronManager {
   public async updateRotationInterval(minutes: number) {
     console.log(`Updating rotation interval to: ${minutes} minutes`);
     this.currentInterval = minutes;
-    await this.startPersonaRotation();
+    this.lastRotation = new Date(); // Reset last rotation when interval changes
   }
 
   public async forceRotation() {

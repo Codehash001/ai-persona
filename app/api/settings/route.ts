@@ -18,7 +18,8 @@ export async function GET() {
         data: {
           temperature: 0.7,
           maxTokens: 1000,
-          rotationInterval: 360
+          rotationInterval: 360,
+          modelName: "gpt-4-0125-preview"
         },
         include: {
           selectedPersona: true
@@ -43,7 +44,7 @@ export async function GET() {
 export async function POST(req: Request) {
   try {
     const body = await req.json()
-    const { temperature, maxTokens, selectedPersonaId, rotationInterval } = body
+    const { temperature, maxTokens, selectedPersonaId, rotationInterval, modelName } = body
 
     // Validate the input
     if (typeof temperature !== "number" || temperature < 0 || temperature > 2) {
@@ -67,12 +68,20 @@ export async function POST(req: Request) {
       )
     }
 
+    if (typeof modelName !== "string" || !modelName) {
+      return NextResponse.json(
+        { error: "Model name must be provided" },
+        { status: 400 }
+      )
+    }
+
     const updatedSettings = await prisma.settings.upsert({
       where: { id: "1" },
       update: {
         temperature,
         maxTokens,
         rotationInterval,
+        modelName,
         selectedPersonaId: selectedPersonaId || null
       },
       create: {
@@ -80,6 +89,7 @@ export async function POST(req: Request) {
         temperature,
         maxTokens,
         rotationInterval,
+        modelName,
         selectedPersonaId: selectedPersonaId || null
       },
       include: {
