@@ -116,7 +116,7 @@ export function ConversationsSection() {
   })
 
   const conversations = data?.conversations || []
-  const pagination = data?.pagination || { total: 0, pageCount: 0, page: 1, pageSize: 10 }
+  const pagination = data?.pagination || { total: 0, pageCount: 0, page: 1, pageSize: 8 }
 
   const clearData = async () => {
     try {

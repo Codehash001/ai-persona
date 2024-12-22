@@ -195,7 +195,9 @@ export function ChatInterface() {
   const handleNewConversation = () => {
     setConversationId(null)
     // Clear messages (this will trigger useChat to reset)
-    window.location.reload()
+    localStorage.removeItem('username');
+    setShowUsernameModal(true);
+    window.location.reload();
   }
 
   if (showUsernameModal) {
